@@ -1,13 +1,29 @@
 from collections import defaultdict
 from datetime import datetime
 import re
-from config import *
-
-from googleapiclient.discovery import build
 
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
-import os
+
+ORANGE_COLOR_ID = "6"   # Мандарин → работа
+LAVENDER_COLOR_ID = "1" # Лаванда → учёба
+SAGE_COLOR_ID = "2" # Шалфей - врач/больница
+GRAPHITE_COLOR_ID = "8" # Пропуск
+
+MONTHS_RU = {
+    1: "января",
+    2: "февраля",
+    3: "марта",
+    4: "апреля",
+    5: "мая",
+    6: "июня",
+    7: "июля",
+    8: "августа",
+    9: "сентября",
+    10: "октября",
+    11: "ноября",
+    12: "декабря",
+}
 
 def get_service():
     SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
