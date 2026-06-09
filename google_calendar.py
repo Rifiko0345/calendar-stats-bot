@@ -1,7 +1,25 @@
 from collections import defaultdict
 from datetime import datetime
 import re
-from config import *
+ORANGE_COLOR_ID = "6"   # Мандарин → работа
+LAVENDER_COLOR_ID = "1" # Лаванда → учёба
+SAGE_COLOR_ID = "2" # Шалфей - врач/больница
+GRAPHITE_COLOR_ID = "8" # Пропуск
+
+MONTHS_RU = {
+    1: "января",
+    2: "февраля",
+    3: "марта",
+    4: "апреля",
+    5: "мая",
+    6: "июня",
+    7: "июля",
+    8: "августа",
+    9: "сентября",
+    10: "октября",
+    11: "ноября",
+    12: "декабря",
+}
 
 from googleapiclient.discovery import build
 

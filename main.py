@@ -13,7 +13,6 @@ import locale
 import re
 import os
 from dotenv import load_dotenv
-from config import *
 from google_calendar import get_stats
 from telegram.ext import (
     Application,
@@ -24,6 +23,27 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup
 )
+
+ORANGE_COLOR_ID = "6"   # Мандарин → работа
+LAVENDER_COLOR_ID = "1" # Лаванда → учёба
+SAGE_COLOR_ID = "2" # Шалфей - врач/больница
+GRAPHITE_COLOR_ID = "8" # Пропуск
+
+MONTHS_RU = {
+    1: "января",
+    2: "февраля",
+    3: "марта",
+    4: "апреля",
+    5: "мая",
+    6: "июня",
+    7: "июля",
+    8: "августа",
+    9: "сентября",
+    10: "октября",
+    11: "ноября",
+    12: "декабря",
+}
+
 
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -65,8 +85,6 @@ if not creds or not creds.valid:
 
     with open("token.json", "w") as token:
         token.write(creds.to_json())
-
-
 
 now = datetime.now(timezone.utc)
 
@@ -122,6 +140,32 @@ def get_current_year():
 
     return start, now
 
+def get_month_period(year, month):
+
+    start = datetime(
+        year,
+        month,
+        1,
+        tzinfo=timezone.utc
+    )
+
+    if month == 12:
+        end = datetime(
+            year + 1,
+            1,
+            1,
+            tzinfo=timezone.utc
+        )
+    else:
+        end = datetime(
+            year,
+            month + 1,
+            1,
+            tzinfo=timezone.utc
+        )
+
+    return start, end
+
 # ==========================================
 # ФОРМИРОВАНИЕ ОТЧЁТА
 # ==========================================
@@ -174,9 +218,14 @@ async def send_report(update, context, start_date, end_date, period_type):
 
     if query:
         await query.answer()
-        await query.message.edit_text(report,reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⬅️ Назад", callback_data="stats_menu")]
-            ])
+        menu = get_report_menu()
+
+        if context.user_data.get("state") == "MONTH_REPORT":
+            menu = get_month_report_menu()
+
+        await query.message.edit_text(
+            report,
+            reply_markup=menu
         )
     else:
         await update.message.reply_text(report)
@@ -200,11 +249,53 @@ async def month(update, context):
 async def year(update, context):
     await send_period(update, context, "year")
 
+def get_year_menu():
+    keyboard = [
+        [InlineKeyboardButton("2024", callback_data="year_2024")],
+        [InlineKeyboardButton("2025", callback_data="year_2025")],
+        [InlineKeyboardButton("2026", callback_data="year_2026")],
+        [InlineKeyboardButton("⬅️ Назад", callback_data="back_main")]
+    ]
+
+    return InlineKeyboardMarkup(keyboard)
+
+def get_month_menu():
+
+    keyboard = [
+        [InlineKeyboardButton("Январь", callback_data="month_1")],
+        [InlineKeyboardButton("Февраль", callback_data="month_2")],
+        [InlineKeyboardButton("Март", callback_data="month_3")],
+        [InlineKeyboardButton("Апрель", callback_data="month_4")],
+        [InlineKeyboardButton("Май", callback_data="month_5")],
+        [InlineKeyboardButton("Июнь", callback_data="month_6")],
+        [InlineKeyboardButton("Июль", callback_data="month_7")],
+        [InlineKeyboardButton("Август", callback_data="month_8")],
+        [InlineKeyboardButton("Сентябрь", callback_data="month_9")],
+        [InlineKeyboardButton("Октябрь", callback_data="month_10")],
+        [InlineKeyboardButton("Ноябрь", callback_data="month_11")],
+        [InlineKeyboardButton("Декабрь", callback_data="month_12")],
+        [InlineKeyboardButton("⬅️ Назад", callback_data="period_menu")]
+    ]
+
+    return InlineKeyboardMarkup(keyboard)
+
+def get_period_report_menu():
+
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            "⬅️ Назад",
+            callback_data="period_menu"
+        )]
+    ])
 
 async def handle_menu(update, context):
 
     query = update.callback_query
-    await query.answer()
+
+    try:
+        await query.answer()
+    except Exception as e:
+        print("query.answer error:", e)
 
     data = query.data
 
@@ -238,16 +329,43 @@ async def handle_menu(update, context):
             reply_markup=get_main_menu()
         )
 
-    # =========================
     # ВЫБОР ГОДА
-    # =========================
     elif data.startswith("year_"):
         selected_year = int(data.split("_")[1])
         context.user_data["selected_year"] = selected_year
+        context.user_data["state"] = "MONTH_MENU"
+        await query.edit_message_text(
+            f"Выберите месяц ({selected_year}):",
+            reply_markup=get_month_menu()
+        )
+    #Выбор месяца
+    elif data.startswith("month_"):
+
+        selected_month = int(data.split("_")[1])
+
+        selected_year = context.user_data["selected_year"]
+
+        start, end = get_month_period(
+            selected_year,
+            selected_month
+        )
+        context.user_data["state"] = "MONTH_REPORT"
+        await send_report(
+            update,
+            context,
+            start,
+            end,
+            "month"
+        )
+    elif data == "back_to_months":
+
+        selected_year = context.user_data["selected_year"]
 
         await query.edit_message_text(
-            f"Выбран год: {selected_year}\nТеперь выбери месяц (следующий шаг будет позже)"
+            f"Выберите месяц ({selected_year}):",
+            reply_markup=get_month_menu()
         )
+
 
     # =========================
     # СТАТИСТИКА
@@ -284,18 +402,20 @@ def get_stats_menu():
 
     return InlineKeyboardMarkup(keyboard)
 
-def get_year_menu():
-    keyboard = [
-        [InlineKeyboardButton("2024", callback_data="year_2024")],
-        [InlineKeyboardButton("2025", callback_data="year_2025")],
-        [InlineKeyboardButton("2026", callback_data="year_2026")],
-        [InlineKeyboardButton("⬅️ Назад", callback_data="back_main")]
-    ]
 
-    return InlineKeyboardMarkup(keyboard)
 
 def get_report_menu():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data="stats_menu")]])
+    return InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад",callback_data="stats_menu")]])
+
+
+def get_month_report_menu():
+
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            "⬅️ Назад",
+            callback_data="back_to_months"
+        )]
+    ])
 
 app = Application.builder().token(TELEGRAM_TOKEN).build()
 
@@ -309,10 +429,11 @@ app.add_handler(CallbackQueryHandler(handle_menu))
 app.run_polling()
 
 # TO DO
-#
+# Добавить "Качалка" в поиск слота зал
 # Добавить в бота кнопки события: статистика этого месяца, недели, года
 # Сравнение месяцев
 # графики
+# По возможноси оптимизировать Map?
 
 
 
