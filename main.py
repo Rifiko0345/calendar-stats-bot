@@ -31,6 +31,12 @@ STATE_COMPARE = "compare"
 locale.setlocale(locale.LC_TIME, "ru_RU.UTF-8")
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 
+MONTH_NAMES = {
+    1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
+    5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
+    9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь",
+}
+
 # ==========================================
 # АВТОРИЗАЦИЯ GOOGLE CALENDAR
 # ==========================================
@@ -140,6 +146,11 @@ def get_month_period(year, month):
 
     return start, end
 
+def format_compare_first_month(context):
+    year = context.user_data["compare_first_year"]
+    month = context.user_data["compare_first_month"]
+    return f"✅ Первый месяц: {MONTH_NAMES[month]} {year}"
+
 # ==========================================
 # ФОРМИРОВАНИЕ ОТЧЁТА
 # ==========================================
@@ -184,6 +195,71 @@ def build_report(stats, start_date, end_date, period_type="week"):
     report += f"\nВсего времени: {total_hours:.1f} ч"
 
     return report
+
+def build_compare_report(stats_first, stats_second, label_first, label_second):
+
+    all_categories = set(stats_first) | set(stats_second)
+    sorted_categories = sorted(
+        all_categories,
+        key=lambda c: max(stats_first.get(c, 0), stats_second.get(c, 0)),
+        reverse=True
+    )
+
+    total_first = sum(stats_first.values())
+    total_second = sum(stats_second.values())
+    diff_total = total_second - total_first
+
+    report = f"⚖️ {label_first} → {label_second}\n\n"
+
+    for category in sorted_categories:
+        hours_first = stats_first.get(category, 0)
+        hours_second = stats_second.get(category, 0)
+        diff = hours_second - hours_first
+        icon = CATEGORY_ICONS.get(category, "⚪")
+        diff_sign = "+" if diff > 0 else ""
+        report += (
+            f"{icon} {category}: "
+            f"{hours_first:.1f} → {hours_second:.1f} ч "
+            f"({diff_sign}{diff:.1f})\n"
+        )
+
+    total_sign = "+" if diff_total > 0 else ""
+    report += (
+        f"\nВсего: {total_first:.1f} → {total_second:.1f} ч "
+        f"({total_sign}{diff_total:.1f})"
+    )
+
+    return report
+
+async def send_month_compare(update, context):
+
+    query = update.callback_query
+
+    first_year = context.user_data["compare_first_year"]
+    first_month = context.user_data["compare_first_month"]
+    second_year = context.user_data["compare_second_year"]
+    second_month = context.user_data["compare_second_month"]
+
+    start_first, end_first = get_month_period(first_year, first_month)
+    start_second, end_second = get_month_period(second_year, second_month)
+
+    stats_first = get_stats(start_first, end_first)
+    stats_second = get_stats(start_second, end_second)
+
+    label_first = f"{MONTH_NAMES[first_month]} {first_year}"
+    label_second = f"{MONTH_NAMES[second_month]} {second_year}"
+
+    report = build_compare_report(
+        stats_first,
+        stats_second,
+        label_first,
+        label_second
+    )
+
+    await query.message.edit_text(
+        report,
+        reply_markup=get_compare_result_menu()
+    )
 
 async def send_report(update, context, start_date, end_date, period_type):
 
@@ -304,8 +380,71 @@ async def handle_menu(update, context):
         context.user_data["state"] = "COMPARE_MONTH_FIRST_YEAR"
         await query.edit_message_text(
             "Выберите год первого месяца:",
-            reply_markup=get_compare_year_menu()
+            reply_markup=get_compare_year_menu(back_callback="compare_menu")
         )
+
+    elif data.startswith("compare_year_"):
+        selected_year = int(data.split("_")[2])
+        state = context.user_data.get("state")
+
+        if state == "COMPARE_MONTH_SECOND_YEAR":
+            context.user_data["compare_second_year"] = selected_year
+            context.user_data["state"] = "COMPARE_MONTH_SECOND_MONTH"
+            await query.edit_message_text(
+                f"{format_compare_first_month(context)}\n\n"
+                f"Выберите второй месяц ({selected_year}):",
+                reply_markup=get_compare_month_menu(
+                    back_callback="compare_back_second_year"
+                )
+            )
+        else:
+            context.user_data["compare_first_year"] = selected_year
+            context.user_data["state"] = "COMPARE_MONTH_FIRST_MONTH"
+            await query.edit_message_text(
+                f"Выберите первый месяц ({selected_year}):",
+                reply_markup=get_compare_month_menu(
+                    back_callback="compare_months"
+                )
+            )
+
+    elif data.startswith("compare_month_"):
+        selected_month = int(data.split("_")[2])
+        state = context.user_data.get("state")
+
+        if state == "COMPARE_MONTH_SECOND_MONTH":
+            context.user_data["compare_second_month"] = selected_month
+            context.user_data["state"] = "COMPARE_RESULT"
+            await send_month_compare(update, context)
+        else:
+            context.user_data["compare_first_month"] = selected_month
+            context.user_data["state"] = "COMPARE_MONTH_SECOND_YEAR"
+            first_year = context.user_data["compare_first_year"]
+            await query.edit_message_text(
+                f"✅ Первый месяц: {MONTH_NAMES[selected_month]} {first_year}\n\n"
+                f"Выберите год второго месяца:",
+                reply_markup=get_compare_year_menu(
+                    back_callback="compare_back_first_month"
+                )
+            )
+
+    elif data == "compare_back_first_month":
+        context.user_data["state"] = "COMPARE_MONTH_FIRST_MONTH"
+        year = context.user_data["compare_first_year"]
+        await query.edit_message_text(
+            f"Выберите первый месяц ({year}):",
+            reply_markup=get_compare_month_menu(back_callback="compare_months")
+        )
+
+    elif data == "compare_back_second_year":
+        context.user_data["state"] = "COMPARE_MONTH_SECOND_YEAR"
+        await query.edit_message_text(
+            f"{format_compare_first_month(context)}\n\n"
+            f"Выберите год второго месяца:",
+            reply_markup=get_compare_year_menu(
+                back_callback="compare_back_first_month"
+            )
+        )
+
     elif data == "back_main":
         context.user_data["state"] = "MAIN"
         await query.edit_message_text(
@@ -404,16 +543,43 @@ def get_compare_menu():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-def get_compare_year_menu():
+def get_compare_year_menu(back_callback="compare_menu"):
 
     keyboard = [
         [InlineKeyboardButton("2024", callback_data="compare_year_2024")],
         [InlineKeyboardButton("2025", callback_data="compare_year_2025")],
         [InlineKeyboardButton("2026", callback_data="compare_year_2026")],
-        [InlineKeyboardButton("⬅️ Назад", callback_data="compare_menu")]
+        [InlineKeyboardButton("⬅️ Назад", callback_data=back_callback)]
     ]
 
     return InlineKeyboardMarkup(keyboard)
+
+def get_compare_month_menu(back_callback="compare_months"):
+
+    keyboard = [
+        [InlineKeyboardButton(MONTH_NAMES[m], callback_data=f"compare_month_{m}")]
+        for m in range(1, 13)
+    ]
+    keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data=back_callback)])
+
+    return InlineKeyboardMarkup(keyboard)
+
+def get_compare_result_menu():
+
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            "⬅️ Изменить второй месяц",
+            callback_data="compare_back_second_year"
+        )],
+        [InlineKeyboardButton(
+            "⬅️ Начать заново",
+            callback_data="compare_months"
+        )],
+        [InlineKeyboardButton(
+            "⬅️ В меню сравнения",
+            callback_data="compare_menu"
+        )]
+    ])
 
 def get_report_menu():
     return InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад",callback_data="stats_menu")]])
@@ -445,6 +611,8 @@ app.run_polling()
 # Сравнение месяцев
 # графики
 # По возможноси оптимизировать Map?
+# Добавить думание, при больших расчетах
+# Доработка выбора периода от одного до другого месяца прпарвамвмв
 
 
 
