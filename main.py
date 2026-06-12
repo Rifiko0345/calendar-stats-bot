@@ -1,16 +1,10 @@
-from googleapiclient.discovery import build
-from collections import defaultdict
-from telegram import Bot
 from datetime import timezone
-import asyncio
-import os.path
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import locale
-import re
 import os
 from dotenv import load_dotenv
 from google_calendar import get_stats
@@ -23,27 +17,7 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup
 )
-
-ORANGE_COLOR_ID = "6"   # Мандарин → работа
-LAVENDER_COLOR_ID = "1" # Лаванда → учёба
-SAGE_COLOR_ID = "2" # Шалфей - врач/больница
-GRAPHITE_COLOR_ID = "8" # Пропуск
-
-MONTHS_RU = {
-    1: "января",
-    2: "февраля",
-    3: "марта",
-    4: "апреля",
-    5: "мая",
-    6: "июня",
-    7: "июля",
-    8: "августа",
-    9: "сентября",
-    10: "октября",
-    11: "ноября",
-    12: "декабря",
-}
-
+from google_calendar import CATEGORY_ICONS, MONTHS_RU
 
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -204,7 +178,8 @@ def build_report(stats, start_date, end_date, period_type="week"):
     report = f"📊 {title}: {report_header}\n\n"
 
     for category, hours in sorted_stats:
-        report += f"{category}: {hours:.1f} ч\n"
+        icon = CATEGORY_ICONS.get(category, "⚪")
+        report += f"{icon} {category}: {hours:.1f} ч\n"
 
     report += f"\nВсего времени: {total_hours:.1f} ч"
 
@@ -320,8 +295,17 @@ async def handle_menu(update, context):
 
     elif data == "compare_menu":
         context.user_data["state"] = "COMPARE_MENU"
-        await query.edit_message_text("Сравнение в разработке")
+        await query.edit_message_text(
+            "⚖️ Выберите тип сравнения:",
+            reply_markup=get_compare_menu()
 
+        )
+    elif data == "compare_months":
+        context.user_data["state"] = "COMPARE_MONTH_FIRST_YEAR"
+        await query.edit_message_text(
+            "Выберите год первого месяца:",
+            reply_markup=get_compare_year_menu()
+        )
     elif data == "back_main":
         context.user_data["state"] = "MAIN"
         await query.edit_message_text(
@@ -402,7 +386,34 @@ def get_stats_menu():
 
     return InlineKeyboardMarkup(keyboard)
 
+def get_compare_menu():
 
+    keyboard = [
+        [InlineKeyboardButton(
+            "📆 Сравнить месяцы",
+            callback_data="compare_months"
+        )],
+        [InlineKeyboardButton(
+            "🗓 Сравнить годы",
+            callback_data="compare_years"
+        )],
+        [InlineKeyboardButton(
+            "⬅️ Назад",
+            callback_data="back_main"
+        )]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_compare_year_menu():
+
+    keyboard = [
+        [InlineKeyboardButton("2024", callback_data="compare_year_2024")],
+        [InlineKeyboardButton("2025", callback_data="compare_year_2025")],
+        [InlineKeyboardButton("2026", callback_data="compare_year_2026")],
+        [InlineKeyboardButton("⬅️ Назад", callback_data="compare_menu")]
+    ]
+
+    return InlineKeyboardMarkup(keyboard)
 
 def get_report_menu():
     return InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад",callback_data="stats_menu")]])
