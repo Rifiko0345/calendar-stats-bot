@@ -27,6 +27,9 @@ STATE_MAIN = "main"
 STATE_STATS_MENU = "stats_menu"
 STATE_REPORT = "report"
 STATE_COMPARE = "compare"
+STATE_COMPARE_YEAR_FIRST = "COMPARE_YEAR_FIRST"
+STATE_COMPARE_YEAR_SECOND = "COMPARE_YEAR_SECOND"
+STATE_COMPARE_YEAR_RESULT = "COMPARE_YEAR_RESULT"
 
 locale.setlocale(locale.LC_TIME, "ru_RU.UTF-8")
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
@@ -143,6 +146,24 @@ def get_month_period(year, month):
             1,
             tzinfo=timezone.utc
         )
+
+    return start, end
+
+def get_year_period(year):
+
+    start = datetime(
+        year,
+        1,
+        1,
+        tzinfo=timezone.utc
+    )
+
+    end = datetime(
+        year + 1,
+        1,
+        1,
+        tzinfo=timezone.utc
+    )
 
     return start, end
 
@@ -352,9 +373,10 @@ async def handle_menu(update, context):
 
     state = context.user_data.get("state", "MAIN")
 
-    # =========================
+    # =====================================================
     # ГЛАВНОЕ МЕНЮ
-    # =========================
+    # Переходы из стартового экрана в основные разделы бота.
+    # =====================================================
     if data == "stats_menu":
         context.user_data["state"] = "STATS_MENU"
         await query.edit_message_text(
@@ -376,18 +398,71 @@ async def handle_menu(update, context):
             reply_markup=get_compare_menu()
 
         )
+    # =====================================================
+    # СРАВНЕНИЕ МЕСЯЦЕВ
+    # Начало сценария сравнения двух месяцев.
+    # Пользователь сначала выбирает год первого месяца.
+    # =====================================================
     elif data == "compare_months":
         context.user_data["state"] = "COMPARE_MONTH_FIRST_YEAR"
         await query.edit_message_text(
             "Выберите год первого месяца:",
             reply_markup=get_compare_year_menu(back_callback="compare_menu")
         )
+    # =====================================================
+    # СРАВНЕНИЕ ГОДОВ
+    # Начало сценария сравнения двух годов.
+    # Первый шаг — выбор первого года.
+    # =====================================================
+    elif data == "compare_years":
+        context.user_data["state"] = STATE_COMPARE_YEAR_FIRST
+        await query.edit_message_text(
+            "Выберите первый год:",
+            reply_markup=get_compare_year_menu(
+                back_callback="compare_menu"
+            )
+        )
 
+
+    # =====================================================
+    # ВЫБОР ГОДА ДЛЯ СРАВНЕНИЯ
+    #
+    # Одна и та же клавиатура используется сразу
+    # в двух разных сценариях:
+    #
+    # 1. Сравнение месяцев
+    # 2. Сравнение годов
+    #
+    # Поэтому сначала смотрим текущее состояние (state),
+    # чтобы понять, какой именно год сейчас выбирает пользователь.
+    # =====================================================
     elif data.startswith("compare_year_"):
         selected_year = int(data.split("_")[2])
         state = context.user_data.get("state")
 
+        if state == STATE_COMPARE_YEAR_FIRST:
+            # Пользователь выбрал первый год.
+            # Запоминаем его и переходим к выбору второго года.
+            context.user_data["compare_year_first"] = selected_year
+            context.user_data["state"] = STATE_COMPARE_YEAR_SECOND
+
+            await query.edit_message_text(
+                f"✅ Первый год: {selected_year}\n\n"
+                "Выберите второй год:",
+                reply_markup=get_compare_year_menu(
+                    back_callback="compare_menu"
+                )
+            )
+
+        elif state == STATE_COMPARE_YEAR_SECOND:
+            # Пользователь выбрал второй год.
+            # После этого можно будет сформировать отчёт сравнения.
+            context.user_data["compare_year_second"] = selected_year
+            context.user_data["state"] = STATE_COMPARE_YEAR_RESULT
+
         if state == "COMPARE_MONTH_SECOND_YEAR":
+            # Пользователь находится в сценарии сравнения месяцев.
+            # Сейчас выбирается год второго месяца.
             context.user_data["compare_second_year"] = selected_year
             context.user_data["state"] = "COMPARE_MONTH_SECOND_MONTH"
             await query.edit_message_text(
@@ -398,6 +473,8 @@ async def handle_menu(update, context):
                 )
             )
         else:
+            # Иначе это первый год для первого месяца.
+            # После него пользователь должен выбрать сам месяц.
             context.user_data["compare_first_year"] = selected_year
             context.user_data["state"] = "COMPARE_MONTH_FIRST_MONTH"
             await query.edit_message_text(
@@ -407,15 +484,26 @@ async def handle_menu(update, context):
                 )
             )
 
+    # =====================================================
+    # ВЫБОР МЕСЯЦА ДЛЯ СРАВНЕНИЯ
+    #
+    # В зависимости от состояния определяем,
+    # выбирает пользователь первый месяц
+    # или второй месяц.
+    # =====================================================
     elif data.startswith("compare_month_"):
         selected_month = int(data.split("_")[2])
         state = context.user_data.get("state")
 
         if state == "COMPARE_MONTH_SECOND_MONTH":
+            # Второй месяц выбран.
+            # Можно строить отчёт сравнения.
             context.user_data["compare_second_month"] = selected_month
             context.user_data["state"] = "COMPARE_RESULT"
             await send_month_compare(update, context)
         else:
+            # Первый месяц выбран.
+            # Теперь необходимо выбрать год второго месяца.
             context.user_data["compare_first_month"] = selected_month
             context.user_data["state"] = "COMPARE_MONTH_SECOND_YEAR"
             first_year = context.user_data["compare_first_year"]
@@ -452,7 +540,12 @@ async def handle_menu(update, context):
             reply_markup=get_main_menu()
         )
 
-    # ВЫБОР ГОДА
+    # =====================================================
+    # ПРОСМОТР СТАТИСТИКИ ЗА ПРОИЗВОЛЬНЫЙ МЕСЯЦ
+    #
+    # Пользователь выбрал год.
+    # Следующий экран — выбор месяца.
+    # =====================================================
     elif data.startswith("year_"):
         selected_year = int(data.split("_")[1])
         context.user_data["selected_year"] = selected_year
@@ -461,7 +554,12 @@ async def handle_menu(update, context):
             f"Выберите месяц ({selected_year}):",
             reply_markup=get_month_menu()
         )
-    #Выбор месяца
+    # =====================================================
+    # ПРОСМОТР СТАТИСТИКИ
+    #
+    # После выбора месяца получаем его период
+    # и формируем отчёт.
+    # =====================================================
     elif data.startswith("month_"):
 
         selected_month = int(data.split("_")[1])
@@ -490,9 +588,13 @@ async def handle_menu(update, context):
         )
 
 
-    # =========================
-    # СТАТИСТИКА
-    # =========================
+    # =====================================================
+    # БЫСТРАЯ СТАТИСТИКА
+    #
+    # Кнопки "Текущая неделя",
+    # "Текущий месяц",
+    # "Текущий год".
+    # =====================================================
     elif data in ("week", "month", "year"):
         context.user_data["state"] = "REPORT"
         await send_period(update, context, data)
