@@ -294,7 +294,7 @@ async def send_month_compare(update, context):
     label_first = f"{MONTH_NAMES[first_month]} {first_year}"
     label_second = f"{MONTH_NAMES[second_month]} {second_year}"
 
-    await query.edit_message_text("⏳ Формирую отчёт...")
+
     report = build_compare_report(
         stats_first,
         stats_second,
@@ -322,7 +322,6 @@ async def send_year_compare(update, context):
     stats_first = get_stats(start_first, end_first)
     stats_second = get_stats(start_second, end_second)
 
-    await query.edit_message_text("⏳ Формирую отчёт...")
     report = build_compare_report(
         stats_first,
         stats_second,
@@ -341,6 +340,7 @@ async def send_report(update, context, start_date, end_date, period_type):
     report = build_report(stats,start_date,end_date,period_type)
     query = update.callback_query
 
+    await show_loading(query)
     if query:
         await query.answer()
 
@@ -502,17 +502,14 @@ async def handle_menu(update, context):
         state = context.user_data.get("state")
 
         if state == STATE_COMPARE_YEAR_FIRST:
-            # Пользователь выбрал первый год.
-            # Запоминаем его и переходим к выбору второго года.
-            context.user_data["compare_year_first"] = selected_year
-            context.user_data["state"] = STATE_COMPARE_YEAR_SECOND
+            # После выбора года пользователь выбирает:
+            # весь год или конкретный месяц.
+            context.user_data["compare_first_year"] = selected_year
+            context.user_data["state"] = "COMPARE_MONTH_FIRST_MONTH"
 
             await query.edit_message_text(
-                f"✅ Первый год: {selected_year}\n\n"
-                "Выберите второй год:",
-                reply_markup=get_compare_year_menu(
-                    back_callback="compare_menu"
-                )
+                f"Выберите период ({selected_year}):",
+                reply_markup=get_month_menu()
             )
 
         elif state == STATE_COMPARE_YEAR_SECOND:
@@ -646,7 +643,7 @@ async def handle_menu(update, context):
             start, end = get_year_period(year)
             context.user_data["state"] = "REPORT"
 
-            await query.edit_message_text("⏳ Формирую отчёт...")
+            await show_loading(query)
             context.user_data["report_source"] = "period"
             await send_report(
                 update,
@@ -777,6 +774,9 @@ def get_compare_year_menu(back_callback="compare_menu"):
 def get_compare_month_menu(back_callback="compare_months"):
 
     keyboard = [
+        [InlineKeyboardButton("⭐ За весь год", callback_data="compare_full_year")]
+    ]
+    keyboard += [
         [InlineKeyboardButton(MONTH_NAMES[m], callback_data=f"compare_month_{m}")]
         for m in range(1, 13)
     ]
