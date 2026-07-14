@@ -27,9 +27,7 @@ STATE_MAIN = "main"
 STATE_STATS_MENU = "stats_menu"
 STATE_REPORT = "report"
 STATE_COMPARE = "compare"
-STATE_COMPARE_YEAR_FIRST = "COMPARE_YEAR_FIRST"
-STATE_COMPARE_YEAR_SECOND = "COMPARE_YEAR_SECOND"
-STATE_COMPARE_YEAR_RESULT = "COMPARE_YEAR_RESULT"
+
 
 STATE_ANALYTICS_MENU = "ANALYTICS_MENU"
 STATE_ANALYTICS_YEAR = "ANALYTICS_YEAR"
@@ -192,6 +190,11 @@ def get_year_period(year):
 def format_compare_first_month(context):
     year = context.user_data["compare_first_year"]
     month = context.user_data["compare_first_month"]
+
+    # Если месяц не выбран, значит выбран весь год.
+    if month is None:
+        return f"✅ Первый период: весь {year} год"
+
     return f"✅ Первый месяц: {MONTH_NAMES[month]} {year}"
 
 # ==========================================
@@ -313,8 +316,8 @@ async def send_year_compare(update, context):
 
     await show_loading(query)
 
-    first_year = context.user_data["compare_year_first"]
-    second_year = context.user_data["compare_year_second"]
+    first_year = context.user_data["compare_first_year"]
+    second_year = context.user_data["compare_second_year"]
 
     start_first, end_first = get_year_period(first_year)
     start_second, end_second = get_year_period(second_year)
@@ -331,7 +334,7 @@ async def send_year_compare(update, context):
 
     await query.message.edit_text(
         report,
-        reply_markup=get_compare_year_result_menu()
+        reply_markup=get_compare_result_menu()
     )
 
 async def send_report(update, context, start_date, end_date, period_type):
@@ -470,19 +473,6 @@ async def handle_menu(update, context):
             "Выберите год первого месяца:",
             reply_markup=get_compare_year_menu(back_callback="compare_menu")
         )
-    # =====================================================
-    # СРАВНЕНИЕ ГОДОВ
-    # Начало сценария сравнения двух годов.
-    # Первый шаг — выбор первого года.
-    # =====================================================
-    elif data == "compare_years":
-        context.user_data["state"] = STATE_COMPARE_YEAR_FIRST
-        await query.edit_message_text(
-            "Выберите первый год:",
-            reply_markup=get_compare_year_menu(
-                back_callback="compare_menu"
-            )
-        )
 
 
     # =====================================================
@@ -501,25 +491,9 @@ async def handle_menu(update, context):
         selected_year = int(data.split("_")[2])
         state = context.user_data.get("state")
 
-        if state == STATE_COMPARE_YEAR_FIRST:
-            # После выбора года пользователь выбирает:
-            # весь год или конкретный месяц.
-            context.user_data["compare_first_year"] = selected_year
-            context.user_data["state"] = "COMPARE_MONTH_FIRST_MONTH"
 
-            await query.edit_message_text(
-                f"Выберите период ({selected_year}):",
-                reply_markup=get_month_menu()
-            )
 
-        elif state == STATE_COMPARE_YEAR_SECOND:
-            # Пользователь выбрал второй год.
-            # После этого можно будет сформировать отчёт сравнения.
-            context.user_data["compare_year_second"] = selected_year
-            context.user_data["state"] = STATE_COMPARE_YEAR_RESULT
-            await send_year_compare(update, context)
-
-        elif state == "COMPARE_MONTH_SECOND_YEAR":
+        if state == "COMPARE_MONTH_SECOND_YEAR":
             # Пользователь находится в сценарии сравнения месяцев.
             # Сейчас выбирается год второго месяца.
             context.user_data["compare_second_year"] = selected_year
@@ -542,6 +516,34 @@ async def handle_menu(update, context):
                     back_callback="compare_months"
                 )
             )
+
+    # Пользователь выбрал "⭐ За весь год".
+    elif data == "compare_full_year":
+
+        state = context.user_data["state"]
+
+        # Выбирался первый период.
+        if state == "COMPARE_MONTH_FIRST_MONTH":
+
+            context.user_data["compare_first_month"] = None
+            context.user_data["state"] = "COMPARE_MONTH_SECOND_YEAR"
+
+            first_year = context.user_data["compare_first_year"]
+
+            await query.edit_message_text(
+                f"✅ Первый период: весь {first_year} год\n\n"
+                "Выберите второй год:",
+                reply_markup=get_compare_year_menu(
+                    back_callback="compare_back_first_month"
+                )
+            )
+
+        # Выбирался второй период.
+        elif state == "COMPARE_MONTH_SECOND_MONTH":
+
+            context.user_data["compare_second_month"] = None
+
+            await send_year_compare(update, context)
 
     # =====================================================
     # ВЫБОР МЕСЯЦА ДЛЯ СРАВНЕНИЯ
@@ -592,17 +594,6 @@ async def handle_menu(update, context):
             )
         )
 
-    elif data == "compare_back_second_year_only":
-        context.user_data["state"] = STATE_COMPARE_YEAR_SECOND
-        first_year = context.user_data["compare_year_first"]
-        await query.edit_message_text(
-            f"✅ Первый год: {first_year}\n\n"
-            "Выберите второй год:",
-            reply_markup=get_compare_year_menu(
-                back_callback="compare_menu"
-            )
-        )
-
     elif data == "back_main":
         context.user_data["state"] = "MAIN"
         await query.edit_message_text(
@@ -643,7 +634,6 @@ async def handle_menu(update, context):
             start, end = get_year_period(year)
             context.user_data["state"] = "REPORT"
 
-            await show_loading(query)
             context.user_data["report_source"] = "period"
             await send_report(
                 update,
@@ -746,18 +736,15 @@ def get_compare_menu():
 
     keyboard = [
         [InlineKeyboardButton(
-            "📆 Сравнить месяцы",
+            "⚖️ Начать сравнение",
             callback_data="compare_months"
-        )],
-        [InlineKeyboardButton(
-            "🗓 Сравнить годы",
-            callback_data="compare_years"
         )],
         [InlineKeyboardButton(
             "⬅️ Назад",
             callback_data="back_main"
         )]
     ]
+
     return InlineKeyboardMarkup(keyboard)
 
 def get_compare_year_menu(back_callback="compare_menu"):
@@ -799,28 +786,6 @@ def get_compare_result_menu():
             "⬅️ В меню сравнения",
             callback_data="compare_menu"
         )]
-    ])
-
-def get_compare_year_result_menu():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "🔄 Изменить второй год",
-                callback_data="compare_back_second_year_only"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "🆕 Начать заново",
-                callback_data="compare_years"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "⬅️ Назад",
-                callback_data="compare_menu"
-            )
-        ]
     ])
 
 def get_report_menu():

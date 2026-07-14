@@ -9,6 +9,33 @@ LAVENDER_COLOR_ID = "1" # Лаванда → учёба
 SAGE_COLOR_ID = "2" # Шалфей - врач/больница
 GRAPHITE_COLOR_ID = "8" # Пропуск
 
+SPORT_WORDS = [
+    "зал",
+    "качалка",
+    "тренажерка",
+    "тренажёрка",
+    "спортзал",
+    "gym",
+    "фитнес",
+    "тренировка",
+    "треня",
+    "силовая",
+    "кардио",
+    "бег",
+    "бассейн",
+    "плавание",
+    "йога",
+    "растяжка",
+    "бокс",
+    "грудь",
+    "спина",
+    "ноги",
+    "плечи",
+    "бицепс",
+    "трицепс",
+    "пресс"
+]
+
 MONTHS_RU = {
     1: "января",
     2: "февраля",
@@ -51,7 +78,7 @@ def detect_category(title: str, color_id: str | None):
     if color_id == SAGE_COLOR_ID:
         return "Больница"
 
-    if re.search(r"\bзал\b", title):
+    if any(word in title.lower() for word in SPORT_WORDS):
         return "Спорт"
 
     return "Другое"
